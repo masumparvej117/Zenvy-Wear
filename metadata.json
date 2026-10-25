@@ -1,0 +1,6 @@
+{
+  "name": "ZENVY WEAR",
+  "description": "Wear Your Style. Modern Fashion for Everyone. Bangladesh clothing brand e-commerce storefront with customer shopping, cart, checkout, WhatsApp ordering, and secure private admin panel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
