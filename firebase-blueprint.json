@@ -1,0 +1,327 @@
+{
+  "entities": {
+    "product": {
+      "title": "Product",
+      "description": "Clothing product item sold by ZENVY WEAR.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique product document ID."
+        },
+        "sku": {
+          "type": "string",
+          "description": "Stock Keeping Unit.",
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the product.",
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "description": "Detailed description of the garment.",
+          "maxLength": 2000
+        },
+        "category": {
+          "type": "string",
+          "description": "Category name for catalog grouping.",
+          "maxLength": 100
+        },
+        "price": {
+          "type": "number",
+          "description": "Regular price in Bangladeshi Taka (BDT)."
+        },
+        "discountPrice": {
+          "type": "number",
+          "description": "Optional promotional price in BDT."
+        },
+        "images": {
+          "type": "array",
+          "description": "List of product image URLs."
+        },
+        "sizes": {
+          "type": "array",
+          "description": "Available garment sizes (e.g. S, M, L, XL)."
+        },
+        "colors": {
+          "type": "array",
+          "description": "Available color choices with name and hex code."
+        },
+        "stock": {
+          "type": "number",
+          "description": "Current inventory stock count."
+        },
+        "status": {
+          "type": "string",
+          "description": "Product visibility status.",
+          "enum": ["active", "inactive"]
+        },
+        "isFeatured": {
+          "type": "boolean",
+          "description": "Whether highlighted in featured showcase."
+        },
+        "isNewArrival": {
+          "type": "boolean",
+          "description": "Whether flagged as new arrival."
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Creation timestamp in ISO format."
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "Last update timestamp in ISO format."
+        }
+      },
+      "required": ["sku", "name", "category", "price", "stock", "status"]
+    },
+    "category": {
+      "title": "Category",
+      "description": "Garment product category.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Category ID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Category display name.",
+          "maxLength": 100
+        },
+        "slug": {
+          "type": "string",
+          "description": "URL slug for category.",
+          "maxLength": 100
+        },
+        "description": {
+          "type": "string",
+          "description": "Category banner description.",
+          "maxLength": 500
+        },
+        "image": {
+          "type": "string",
+          "description": "Category showcase banner image URL."
+        }
+      },
+      "required": ["name", "slug"]
+    },
+    "order": {
+      "title": "Order",
+      "description": "Customer purchase order.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique order identifier."
+        },
+        "orderRef": {
+          "type": "string",
+          "description": "Customer visible order reference code.",
+          "maxLength": 32
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Full name of the customer.",
+          "maxLength": 120
+        },
+        "customerEmail": {
+          "type": "string",
+          "description": "Email address of customer.",
+          "maxLength": 200
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "11-digit Bangladesh phone number.",
+          "maxLength": 20
+        },
+        "deliveryAddress": {
+          "type": "string",
+          "description": "Street delivery address and district.",
+          "maxLength": 500
+        },
+        "cityZone": {
+          "type": "string",
+          "description": "Shipping zone in Bangladesh.",
+          "enum": ["inside_dhaka", "outside_dhaka"]
+        },
+        "orderNotes": {
+          "type": "string",
+          "description": "Special delivery instructions.",
+          "maxLength": 500
+        },
+        "items": {
+          "type": "array",
+          "description": "Line items in the order."
+        },
+        "subtotal": {
+          "type": "number",
+          "description": "Items subtotal in BDT."
+        },
+        "deliveryFee": {
+          "type": "number",
+          "description": "Shipping fee in BDT."
+        },
+        "total": {
+          "type": "number",
+          "description": "Total order amount in BDT."
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Payment method.",
+          "enum": ["cod", "online"]
+        },
+        "status": {
+          "type": "string",
+          "description": "Order processing status.",
+          "enum": ["Pending", "Confirmed", "Processing", "Shipped", "Delivered", "Cancelled"]
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Order creation timestamp."
+        },
+        "userId": {
+          "type": "string",
+          "description": "UID of the registered user if signed in."
+        }
+      },
+      "required": ["orderRef", "customerName", "customerPhone", "deliveryAddress", "cityZone", "total", "status", "paymentMethod"]
+    },
+    "userProfile": {
+      "title": "UserProfile",
+      "description": "Customer public and account profile info.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User UID matching auth.uid."
+        },
+        "name": {
+          "type": "string",
+          "description": "Customer display name.",
+          "maxLength": 100
+        },
+        "email": {
+          "type": "string",
+          "description": "Customer email address.",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "description": "Customer contact phone.",
+          "maxLength": 20
+        },
+        "role": {
+          "type": "string",
+          "description": "User role: customer or admin.",
+          "enum": ["customer", "admin"]
+        },
+        "createdAt": {
+          "type": "string",
+          "description": "Registration timestamp."
+        }
+      },
+      "required": ["id", "name", "email", "role"]
+    },
+    "siteSettings": {
+      "title": "SiteSettings",
+      "description": "Store configuration and delivery thresholds.",
+      "type": "object",
+      "properties": {
+        "brandName": {
+          "type": "string",
+          "description": "Store brand name.",
+          "maxLength": 100
+        },
+        "tagline": {
+          "type": "string",
+          "description": "Brand slogan.",
+          "maxLength": 200
+        },
+        "bannerAnnouncement": {
+          "type": "string",
+          "description": "Top announcement banner text.",
+          "maxLength": 300
+        },
+        "whatsappNumber": {
+          "type": "string",
+          "description": "WhatsApp contact phone.",
+          "maxLength": 20
+        },
+        "facebookUrl": {
+          "type": "string",
+          "description": "Facebook brand page URL.",
+          "maxLength": 255
+        },
+        "businessEmail": {
+          "type": "string",
+          "description": "Support email address.",
+          "maxLength": 200
+        },
+        "freeShippingThreshold": {
+          "type": "number",
+          "description": "Minimum subtotal in BDT to qualify for free delivery."
+        },
+        "deliveryFeeDhaka": {
+          "type": "number",
+          "description": "Delivery charge within Dhaka city."
+        },
+        "deliveryFeeOutside": {
+          "type": "number",
+          "description": "Delivery charge outside Dhaka city."
+        }
+      },
+      "required": ["brandName", "whatsappNumber", "deliveryFeeDhaka", "deliveryFeeOutside"]
+    },
+    "adminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted admin authorization document.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "description": "Admin email address.",
+          "maxLength": 200
+        },
+        "role": {
+          "type": "string",
+          "description": "Admin authorization role.",
+          "enum": ["admin"]
+        },
+        "addedAt": {
+          "type": "string",
+          "description": "Timestamp when admin access was granted."
+        }
+      },
+      "required": ["email", "role"]
+    }
+  },
+  "firestore": {
+    "/products/{productId}": {
+      "schema": "product",
+      "description": "Garment product catalog documents."
+    },
+    "/categories/{categoryId}": {
+      "schema": "category",
+      "description": "Fashion category collections."
+    },
+    "/orders/{orderId}": {
+      "schema": "order",
+      "description": "Customer placed orders and delivery details."
+    },
+    "/users/{userId}": {
+      "schema": "userProfile",
+      "description": "User profile information."
+    },
+    "/settings/{settingId}": {
+      "schema": "siteSettings",
+      "description": "Global store settings."
+    },
+    "/admins/{adminId}": {
+      "schema": "adminRecord",
+      "description": "Admin role authorizations."
+    }
+  }
+}

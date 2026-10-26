@@ -90,7 +90,9 @@ export const api = {
     deliveryAddress: string;
     cityZone: 'inside_dhaka' | 'outside_dhaka';
     orderNotes?: string;
-    paymentMethod: 'cod' | 'online';
+    paymentMethod: 'bkash' | 'nagad' | 'rocket' | 'cod' | 'online';
+    paymentSenderNumber: string;
+    paymentTrxId?: string;
     items: Array<{ productId: string; size: string; color: string; quantity: number }>;
   }) =>
     request<{ message: string; order: Order }>('/api/orders', {

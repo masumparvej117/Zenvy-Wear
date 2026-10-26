@@ -3,7 +3,6 @@ import { ShopProvider, useShop } from './context/ShopContext';
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { CategoryShowcase } from './components/CategoryShowcase';
-import { FeaturedProductsShowcase } from './components/FeaturedProductsShowcase';
 import { ProductCard } from './components/ProductCard';
 import { ProductModal } from './components/ProductModal';
 import { CartDrawer } from './components/CartDrawer';
@@ -39,7 +38,7 @@ function Storefront() {
     settings,
   } = useShop();
 
-  const [sortBy, setSortBy] = useState<'featured' | 'price-asc' | 'price-desc'>('featured');
+  const [sortBy, setSortBy] = useState<'newest' | 'featured' | 'price-asc' | 'price-desc'>('newest');
 
   // Filter products
   const filteredProducts = products.filter((prod) => {
@@ -58,14 +57,20 @@ function Storefront() {
     return matchesCategory && matchesSearch;
   });
 
-  // Sort products
+  // Sort products - newest products at the very top by default
   const sortedProducts = [...filteredProducts].sort((a, b) => {
     const priceA = a.discountPrice || a.price;
     const priceB = b.discountPrice || b.price;
+    const dateA = new Date(a.createdAt || 0).getTime();
+    const dateB = new Date(b.createdAt || 0).getTime();
 
     if (sortBy === 'price-asc') return priceA - priceB;
     if (sortBy === 'price-desc') return priceB - priceA;
-    return b.isFeatured ? 1 : -1;
+    if (sortBy === 'featured') {
+      if (a.isFeatured !== b.isFeatured) return b.isFeatured ? 1 : -1;
+      return dateB - dateA;
+    }
+    return dateB - dateA;
   });
 
   return (
@@ -78,9 +83,6 @@ function Storefront() {
 
         {/* Categories Showcase */}
         <CategoryShowcase />
-
-        {/* Featured Products & Sidebar (Exact Match to Reference Screenshot) */}
-        <FeaturedProductsShowcase />
 
 
 
@@ -143,6 +145,7 @@ function Storefront() {
                 onChange={(e) => setSortBy(e.target.value as any)}
                 className="py-2 px-3 text-xs font-medium bg-neutral-100 border border-neutral-200 text-neutral-800 rounded-xl focus:outline-none"
               >
+                <option value="newest">Sort: Newest First (Top)</option>
                 <option value="featured">Sort: Featured</option>
                 <option value="price-asc">Price: Low to High</option>
                 <option value="price-desc">Price: High to Low</option>

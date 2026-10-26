@@ -24,13 +24,24 @@ import {
   DollarSign,
   Users,
   RefreshCw,
+  UploadCloud,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { useShop } from '../../context/ShopContext';
 import { api } from '../../utils/api';
 import type { Product, Category, Order, SiteSettings } from '../../types';
+import {
+  addProductToFirestore,
+  updateProductInFirestore,
+  deleteProductFromFirestore,
+  addCategoryToFirestore,
+  deleteCategoryFromFirestore,
+  updateOrderStatusInFirestore,
+  updateSettingsInFirestore,
+} from '../../firebase/firestoreService';
 
 export function AdminDashboard() {
-  const { user, isAdmin, setCurrentRoute, logout, showToast, refreshData } = useShop();
+  const { user, isAdmin, isFirebaseConnected, setCurrentRoute, logout, showToast, refreshData } = useShop();
 
   // Active sub-tab
   const [activeTab, setActiveTab] = useState<
@@ -77,6 +88,9 @@ export function AdminDashboard() {
   const [formStock, setFormStock] = useState<number | ''>('');
   const [formDescription, setFormDescription] = useState('');
   const [formImages, setFormImages] = useState('');
+  const [formImageList, setFormImageList] = useState<string[]>([]);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageUrlInput, setImageUrlInput] = useState('');
   const [formSizes, setFormSizes] = useState('');
   const [formColors, setFormColors] = useState('');
   const [formStatus, setFormStatus] = useState<'active' | 'inactive'>('active');
@@ -136,6 +150,83 @@ export function AdminDashboard() {
     );
   }
 
+  // Image upload handling (max 5 images)
+  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const remainingSlots = 5 - formImageList.length;
+    if (remainingSlots <= 0) {
+      showToast('Maximum 5 images allowed per product', 'error');
+      return;
+    }
+
+    const filesToProcess = Array.from(files).slice(0, remainingSlots);
+    setIsUploadingImage(true);
+
+    const readers: Promise<string>[] = filesToProcess.map((file) => {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          const img = new Image();
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const maxDim = 1200;
+            let width = img.width;
+            let height = img.height;
+            if (width > maxDim || height > maxDim) {
+              if (width > height) {
+                height = Math.round((height * maxDim) / width);
+                width = maxDim;
+              } else {
+                width = Math.round((width * maxDim) / height);
+                height = maxDim;
+              }
+            }
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, width, height);
+              resolve(canvas.toDataURL('image/jpeg', 0.85));
+            } else {
+              resolve(event.target?.result as string);
+            }
+          };
+          img.src = event.target?.result as string;
+        };
+        reader.readAsDataURL(file);
+      });
+    });
+
+    Promise.all(readers)
+      .then((newUrls) => {
+        setFormImageList((prev) => [...prev, ...newUrls].slice(0, 5));
+        showToast(`Added ${newUrls.length} image(s)`, 'success');
+      })
+      .catch(() => {
+        showToast('Error uploading images', 'error');
+      })
+      .finally(() => {
+        setIsUploadingImage(false);
+        e.target.value = '';
+      });
+  };
+
+  const handleRemoveImage = (index: number) => {
+    setFormImageList((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleAddImageUrl = () => {
+    if (!imageUrlInput.trim()) return;
+    if (formImageList.length >= 5) {
+      showToast('Maximum 5 images allowed per product', 'error');
+      return;
+    }
+    setFormImageList((prev) => [...prev, imageUrlInput.trim()].slice(0, 5));
+    setImageUrlInput('');
+  };
+
   // Handle open add product modal
   const openAddProductModal = () => {
     setEditingProduct(null);
@@ -146,7 +237,9 @@ export function AdminDashboard() {
     setFormDiscountPrice('');
     setFormStock(25);
     setFormDescription('');
-    setFormImages('/src/assets/images/category_men_tshirt_1792926459237.jpg');
+    setFormImages('');
+    setFormImageList(['/src/assets/images/category_men_tshirt_1792926459237.jpg']);
+    setImageUrlInput('');
     setFormSizes('M, L, XL, XXL');
     setFormColors('Onyx Black:#111111, Pure White:#FFFFFF');
     setFormStatus('active');
@@ -166,6 +259,12 @@ export function AdminDashboard() {
     setFormStock(product.stock);
     setFormDescription(product.description);
     setFormImages(product.images.join(', '));
+    setFormImageList(
+      product.images && product.images.length > 0
+        ? [...product.images].slice(0, 5)
+        : ['/src/assets/images/category_men_tshirt_1792926459237.jpg']
+    );
+    setImageUrlInput('');
     setFormSizes(product.sizes.join(', '));
     setFormColors(product.colors.map((c) => `${c.name}:${c.hex}`).join(', '));
     setFormStatus(product.status);
@@ -182,10 +281,10 @@ export function AdminDashboard() {
       return;
     }
 
-    const imagesArray = formImages
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const imagesArray =
+      formImageList.length > 0
+        ? formImageList
+        : ['/src/assets/images/category_men_tshirt_1792926459237.jpg'];
 
     const sizesArray = formSizes
       .split(',')
@@ -220,9 +319,19 @@ export function AdminDashboard() {
     try {
       if (editingProduct && editingProduct.id) {
         await api.admin.updateProduct(editingProduct.id, payload);
+        try {
+          await updateProductInFirestore(editingProduct.id, payload);
+        } catch (fbErr) {
+          console.warn('Firestore update:', fbErr);
+        }
         showToast('Product updated successfully', 'success');
       } else {
-        await api.admin.createProduct(payload);
+        const created = await api.admin.createProduct(payload);
+        try {
+          await addProductToFirestore(created);
+        } catch (fbErr) {
+          console.warn('Firestore create:', fbErr);
+        }
         showToast('New product added to catalog', 'success');
       }
       setIsProductModalOpen(false);
@@ -238,6 +347,11 @@ export function AdminDashboard() {
     if (!deleteProductId) return;
     try {
       await api.admin.deleteProduct(deleteProductId);
+      try {
+        await deleteProductFromFirestore(deleteProductId);
+      } catch (fbErr) {
+        console.warn('Firestore delete:', fbErr);
+      }
       showToast('Product removed from catalog', 'success');
       setDeleteProductId(null);
       loadAllAdminData();
@@ -251,6 +365,11 @@ export function AdminDashboard() {
   const handleOrderStatusChange = async (orderId: string, newStatus: string) => {
     try {
       await api.admin.updateOrderStatus(orderId, newStatus);
+      try {
+        await updateOrderStatusInFirestore(orderId, newStatus);
+      } catch (fbErr) {
+        console.warn('Firestore status:', fbErr);
+      }
       showToast(`Order status updated to ${newStatus}`, 'success');
       loadAllAdminData();
     } catch (err: any) {
@@ -263,10 +382,15 @@ export function AdminDashboard() {
     e.preventDefault();
     if (!newCategoryName.trim()) return;
     try {
-      await api.admin.createCategory({
+      const createdCat = await api.admin.createCategory({
         name: newCategoryName.trim(),
         description: newCategoryDesc.trim() || undefined,
       });
+      try {
+        await addCategoryToFirestore(createdCat);
+      } catch (fbErr) {
+        console.warn('Firestore category create:', fbErr);
+      }
       showToast(`Category "${newCategoryName}" added`, 'success');
       setNewCategoryName('');
       setNewCategoryDesc('');
@@ -283,6 +407,11 @@ export function AdminDashboard() {
     if (!confirm(`Are you sure you want to delete category "${catName}"?`)) return;
     try {
       await api.admin.deleteCategory(catId);
+      try {
+        await deleteCategoryFromFirestore(catId);
+      } catch (fbErr) {
+        console.warn('Firestore category delete:', fbErr);
+      }
       showToast(`Category deleted`, 'success');
       loadAllAdminData();
       refreshData();
@@ -297,6 +426,11 @@ export function AdminDashboard() {
     if (!siteSettings) return;
     try {
       await api.admin.updateSettings(siteSettings);
+      try {
+        await updateSettingsInFirestore(siteSettings);
+      } catch (fbErr) {
+        console.warn('Firestore settings update:', fbErr);
+      }
       showToast('Site settings and contact details updated', 'success');
       refreshData();
     } catch (err: any) {
@@ -343,6 +477,11 @@ export function AdminDashboard() {
         </div>
 
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-950/70 border border-emerald-700/50 rounded-lg text-[11px] text-emerald-400 font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Firebase Connected</span>
+          </div>
+
           <button
             onClick={() => setCurrentRoute('store')}
             className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors border border-neutral-700"
@@ -717,24 +856,72 @@ export function AdminDashboard() {
                   <Search className="w-4 h-4 text-neutral-500 absolute left-3 top-2.5" />
                   <input
                     type="text"
-                    placeholder="Search by ref, customer, phone..."
+                    placeholder="Search by ref, customer, phone, sender number..."
                     value={orderSearch}
                     onChange={(e) => setOrderSearch(e.target.value)}
                     className="w-full pl-9 pr-3 py-1.5 text-xs bg-neutral-900 border border-neutral-700 text-white rounded-lg focus:outline-none focus:border-white"
                   />
                 </div>
 
+                {/* Quick Status Filter Tabs */}
+                <div className="flex flex-wrap items-center gap-1.5 p-1 bg-neutral-900 rounded-xl border border-neutral-800">
+                  <button
+                    type="button"
+                    onClick={() => setOrderStatusFilter('all')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${
+                      orderStatusFilter === 'all'
+                        ? 'bg-neutral-700 text-white font-bold'
+                        : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    All ({adminOrders.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStatusFilter('Pending')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${
+                      orderStatusFilter === 'Pending'
+                        ? 'bg-amber-500 text-neutral-950 font-bold'
+                        : 'text-amber-400 hover:text-amber-300'
+                    }`}
+                  >
+                    Pending ({adminOrders.filter((o) => o.status === 'Pending').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStatusFilter('Processing')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${
+                      orderStatusFilter === 'Processing'
+                        ? 'bg-blue-600 text-white font-bold'
+                        : 'text-blue-400 hover:text-blue-300'
+                    }`}
+                  >
+                    Processing ({adminOrders.filter((o) => o.status === 'Processing').length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOrderStatusFilter('Success')}
+                    className={`px-2.5 py-1 text-xs rounded-lg font-medium transition-colors cursor-pointer ${
+                      orderStatusFilter === 'Success'
+                        ? 'bg-emerald-600 text-white font-bold'
+                        : 'text-emerald-400 hover:text-emerald-300'
+                    }`}
+                  >
+                    Success ({adminOrders.filter((o) => o.status === 'Success').length})
+                  </button>
+                </div>
+
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-neutral-400">Status:</span>
                   <select
                     value={orderStatusFilter}
                     onChange={(e) => setOrderStatusFilter(e.target.value)}
-                    className="py-1.5 px-3 text-xs bg-neutral-900 border border-neutral-700 text-white rounded-lg focus:outline-none"
+                    className="py-1.5 px-3 text-xs bg-neutral-900 border border-neutral-700 text-white rounded-lg focus:outline-none cursor-pointer"
                   >
                     <option value="all">All Statuses</option>
                     <option value="Pending">Pending</option>
-                    <option value="Confirmed">Confirmed</option>
                     <option value="Processing">Processing</option>
+                    <option value="Success">Success (Delivered)</option>
+                    <option value="Confirmed">Confirmed</option>
                     <option value="Shipped">Shipped</option>
                     <option value="Delivered">Delivered</option>
                     <option value="Cancelled">Cancelled</option>
@@ -754,111 +941,221 @@ export function AdminDashboard() {
                   No orders match the selected criteria.
                 </div>
               ) : (
-                filteredOrders.map((ord) => (
-                  <div
-                    key={ord.id}
-                    className="bg-neutral-950 p-5 rounded-2xl border border-neutral-800 space-y-4"
-                  >
-                    {/* Top Row */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 pb-3">
-                      <div className="flex items-center gap-3">
-                        <span className="font-mono font-bold text-sm text-white">
-                          {ord.orderRef}
-                        </span>
-                        <span className="text-xs text-neutral-400">
-                          {new Date(ord.createdAt).toLocaleDateString('en-GB', {
-                            day: 'numeric',
-                            month: 'short',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
-                        </span>
-                      </div>
+                filteredOrders.map((ord) => {
+                  const advanceDeliveryFee = ord.deliveryFeeAdvance || ord.deliveryFee;
+                  const remainingCodDue = ord.subtotal;
 
-                      {/* Status Selector */}
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-neutral-400">Status:</span>
-                        <select
-                          value={ord.status}
-                          onChange={(e) => handleOrderStatusChange(ord.id, e.target.value)}
-                          className="py-1 px-3 text-xs font-semibold rounded-lg bg-neutral-900 border border-neutral-700 text-white focus:outline-none cursor-pointer"
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Confirmed">Confirmed</option>
-                          <option value="Processing">Processing</option>
-                          <option value="Shipped">Shipped</option>
-                          <option value="Delivered">Delivered</option>
-                          <option value="Cancelled">Cancelled</option>
-                        </select>
-                      </div>
-                    </div>
+                  return (
+                    <div
+                      key={ord.id}
+                      className="bg-neutral-950 p-5 rounded-2xl border border-neutral-800 space-y-4 hover:border-neutral-700 transition-colors"
+                    >
+                      {/* Top Row: Ref, Date, and 1-Click Status Controls */}
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-800 pb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono font-bold text-sm text-white bg-neutral-900 px-2.5 py-1 rounded-lg border border-neutral-800">
+                            {ord.orderRef}
+                          </span>
+                          <span className="text-xs text-neutral-400">
+                            {new Date(ord.createdAt).toLocaleDateString('en-GB', {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                          </span>
 
-                    {/* Middle Details Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
-                      {/* Customer Details */}
-                      <div className="space-y-1.5 bg-neutral-900/60 p-3 rounded-xl border border-neutral-800/80">
-                        <div className="font-bold text-white flex items-center justify-between">
-                          <span>{ord.customerName}</span>
-                          <a
-                            href={`https://wa.me/${ord.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                              `Hello ${ord.customerName}, this is ZENVY WEAR regarding your order ${ord.orderRef}.`
-                            )}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 text-[11px]"
+                          {/* Current Status Badge */}
+                          <span
+                            className={`px-2 py-0.5 text-[11px] font-bold rounded border ${
+                              ord.status === 'Success' || ord.status === 'Delivered'
+                                ? 'bg-emerald-950/80 text-emerald-400 border-emerald-700'
+                                : ord.status === 'Processing'
+                                ? 'bg-blue-950/80 text-blue-400 border-blue-700'
+                                : ord.status === 'Pending'
+                                ? 'bg-amber-950/80 text-amber-400 border-amber-700'
+                                : 'bg-neutral-800 text-neutral-300 border-neutral-700'
+                            }`}
                           >
-                            <MessageCircle className="w-3.5 h-3.5" />
-                            <span>WhatsApp</span>
-                          </a>
+                            ● {ord.status}
+                          </span>
                         </div>
-                        <div className="text-neutral-400 flex items-center gap-1.5">
-                          <Phone className="w-3 h-3 text-neutral-500" />
-                          <span>{ord.customerPhone}</span>
-                        </div>
-                        {ord.customerEmail && (
-                          <div className="text-neutral-400">{ord.customerEmail}</div>
-                        )}
-                        <div className="text-neutral-400 flex items-start gap-1.5 pt-1">
-                          <MapPin className="w-3 h-3 text-neutral-500 shrink-0 mt-0.5" />
-                          <span className="leading-relaxed">{ord.deliveryAddress}</span>
-                        </div>
-                        <div className="text-[11px] text-neutral-500 pt-0.5">
-                          Zone: {ord.cityZone === 'inside_dhaka' ? 'Inside Dhaka' : 'Outside Dhaka'}
+
+                        {/* QUICK 1-CLICK ACTION BUTTONS: Pending | Process | Success */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-xs text-neutral-400 hidden sm:inline">Quick Action:</span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOrderStatusChange(ord.id, 'Pending')}
+                            title="Set order status to Pending"
+                            className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                              ord.status === 'Pending'
+                                ? 'bg-amber-500 text-neutral-950 font-bold border-amber-400 shadow-xs ring-2 ring-amber-400/40'
+                                : 'bg-neutral-900 text-amber-400 border-amber-500/40 hover:bg-amber-950/40'
+                            }`}
+                          >
+                            Pending
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOrderStatusChange(ord.id, 'Processing')}
+                            title="Set order status to Processing"
+                            className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer ${
+                              ord.status === 'Processing'
+                                ? 'bg-blue-600 text-white font-bold border-blue-500 shadow-xs ring-2 ring-blue-500/40'
+                                : 'bg-neutral-900 text-blue-400 border-blue-500/40 hover:bg-blue-950/40'
+                            }`}
+                          >
+                            Process
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleOrderStatusChange(ord.id, 'Success')}
+                            title="Mark order as Success / Delivered"
+                            className={`px-2.5 py-1 text-xs rounded-lg border transition-all cursor-pointer flex items-center gap-1 ${
+                              ord.status === 'Success' || ord.status === 'Delivered'
+                                ? 'bg-emerald-600 text-white font-bold border-emerald-500 shadow-xs ring-2 ring-emerald-500/40'
+                                : 'bg-neutral-900 text-emerald-400 border-emerald-500/40 hover:bg-emerald-950/40'
+                            }`}
+                          >
+                            <CheckCircle className="w-3.5 h-3.5" />
+                            <span>Success</span>
+                          </button>
+
+                          {/* Full Status Dropdown */}
+                          <select
+                            value={ord.status}
+                            onChange={(e) => handleOrderStatusChange(ord.id, e.target.value)}
+                            className="py-1 px-2.5 text-xs font-semibold rounded-lg bg-neutral-900 border border-neutral-700 text-neutral-300 focus:outline-none cursor-pointer"
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="Processing">Processing</option>
+                            <option value="Success">Success (সফল)</option>
+                            <option value="Confirmed">Confirmed</option>
+                            <option value="Shipped">Shipped</option>
+                            <option value="Delivered">Delivered</option>
+                            <option value="Cancelled">Cancelled</option>
+                          </select>
                         </div>
                       </div>
 
-                      {/* Items list */}
-                      <div className="space-y-2 bg-neutral-900/60 p-3 rounded-xl border border-neutral-800/80 md:col-span-2">
-                        <div className="font-bold text-white mb-1">Ordered Items:</div>
-                        <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                          {ord.items.map((it, idx) => (
-                            <div
-                              key={idx}
-                              className="flex items-center justify-between text-neutral-300 text-xs"
+                      {/* Middle Details Grid: Customer Info, Payment Details & Items */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        {/* 1. Customer Details */}
+                        <div className="space-y-1.5 bg-neutral-900/60 p-3.5 rounded-xl border border-neutral-800/80">
+                          <div className="font-bold text-white flex items-center justify-between">
+                            <span>{ord.customerName}</span>
+                            <a
+                              href={`https://wa.me/${ord.customerPhone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
+                                `Hello ${ord.customerName}, this is ZENVY WEAR regarding your order ${ord.orderRef}.`
+                              )}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 text-[11px]"
                             >
-                              <span>
-                                {it.productName} ({it.size}, {it.color}) × {it.quantity}
-                              </span>
-                              <span className="font-semibold text-white tabular-nums">
-                                <span className="font-bengali">৳</span>{it.totalPrice.toLocaleString('en-US')}
+                              <MessageCircle className="w-3.5 h-3.5" />
+                              <span>WhatsApp</span>
+                            </a>
+                          </div>
+                          <div className="text-neutral-400 flex items-center gap-1.5">
+                            <Phone className="w-3 h-3 text-neutral-500" />
+                            <span>{ord.customerPhone}</span>
+                          </div>
+                          {ord.customerEmail && (
+                            <div className="text-neutral-400">{ord.customerEmail}</div>
+                          )}
+                          <div className="text-neutral-400 flex items-start gap-1.5 pt-1">
+                            <MapPin className="w-3 h-3 text-neutral-500 shrink-0 mt-0.5" />
+                            <span className="leading-relaxed">{ord.deliveryAddress}</span>
+                          </div>
+                          <div className="text-[11px] text-neutral-500 pt-0.5">
+                            Zone: {ord.cityZone === 'inside_dhaka' ? 'Inside Dhaka' : 'Outside Dhaka'}
+                          </div>
+                          {ord.orderNotes && (
+                            <div className="text-[11px] text-amber-300/90 pt-1 italic">
+                              Note: {ord.orderNotes}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* 2. MFS Payment & Advance Delivery Charge Details */}
+                        <div className="space-y-2 bg-neutral-900/60 p-3.5 rounded-xl border border-neutral-800/80">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-white">Payment & Delivery:</span>
+                            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              {ord.paymentMethod?.toUpperCase() || 'BKASH'}
+                            </span>
+                          </div>
+
+                          <div className="space-y-1.5 pt-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-400">Send Money নম্বর:</span>
+                              <span className="font-mono font-bold text-emerald-400 text-xs bg-neutral-950 px-2 py-0.5 rounded border border-neutral-800">
+                                {ord.paymentSenderNumber || 'Not provided'}
                               </span>
                             </div>
-                          ))}
+
+                            {ord.paymentTrxId && (
+                              <div className="flex items-center justify-between">
+                                <span className="text-neutral-400">TrxID:</span>
+                                <span className="font-mono text-neutral-200 text-xs">
+                                  {ord.paymentTrxId}
+                                </span>
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-between pt-1 border-t border-neutral-800">
+                              <span className="text-neutral-400">অগ্রিম ডেলিভারি ফি:</span>
+                              <span className="font-bold text-amber-300">
+                                ৳{advanceDeliveryFee}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-400">বাকি ক্যাশ অন ডেলিভারি:</span>
+                              <span className="font-bold text-emerald-400">
+                                ৳{remainingCodDue.toLocaleString('en-US')}
+                              </span>
+                            </div>
+                          </div>
                         </div>
 
-                        <div className="pt-2 border-t border-neutral-800 flex justify-between font-bold text-white text-xs">
-                          <span>
-                            Total (Subtotal: Tk. {ord.subtotal} + Delivery: Tk. {ord.deliveryFee})
-                          </span>
-                          <span className="text-emerald-400 text-sm tabular-nums">
-                            <span className="font-bengali">৳</span>{ord.total.toLocaleString('en-US')} (COD)
-                          </span>
+                        {/* 3. Ordered Items List */}
+                        <div className="space-y-2 bg-neutral-900/60 p-3.5 rounded-xl border border-neutral-800/80">
+                          <div className="font-bold text-white mb-1">Ordered Items:</div>
+                          <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+                            {ord.items.map((it, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center justify-between text-neutral-300 text-xs"
+                              >
+                                <span className="line-clamp-1 pr-2">
+                                  {it.productName} ({it.size}, {it.color}) × {it.quantity}
+                                </span>
+                                <span className="font-semibold text-white tabular-nums shrink-0">
+                                  <span className="font-bengali">৳</span>{it.totalPrice.toLocaleString('en-US')}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="pt-2 border-t border-neutral-800 flex justify-between font-bold text-white text-xs">
+                            <span>
+                              Total Value:
+                            </span>
+                            <span className="text-white text-sm tabular-nums">
+                              <span className="font-bengali">৳</span>{ord.total.toLocaleString('en-US')}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>
@@ -1179,17 +1476,97 @@ export function AdminDashboard() {
                 />
               </div>
 
-              <div>
-                <label className="block font-semibold text-neutral-300 mb-1">
-                  Image URLs (comma separated)
-                </label>
-                <input
-                  type="text"
-                  value={formImages}
-                  onChange={(e) => setFormImages(e.target.value)}
-                  placeholder="/src/assets/images/category_men_tshirt_1792926459237.jpg"
-                  className="w-full px-3 py-2 bg-neutral-900 border border-neutral-700 rounded-lg text-white focus:outline-none"
-                />
+              {/* Product Images (Max 5) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block font-semibold text-neutral-300">
+                    Product Images <span className="text-neutral-500 font-normal">(Maximum 5 images)</span>
+                  </label>
+                  <span className={`text-xs font-mono px-2 py-0.5 rounded ${formImageList.length >= 5 ? 'bg-amber-950 text-amber-300 border border-amber-800' : 'bg-neutral-800 text-neutral-300'}`}>
+                    {formImageList.length} / 5 uploaded
+                  </span>
+                </div>
+
+                {/* Uploaded Images Thumbnails Grid */}
+                {formImageList.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
+                    {formImageList.map((imgUrl, idx) => (
+                      <div
+                        key={idx}
+                        className="relative group aspect-square rounded-xl overflow-hidden border border-neutral-700 bg-neutral-900"
+                      >
+                        <img
+                          src={imgUrl}
+                          alt={`Product view ${idx + 1}`}
+                          className="w-full h-full object-cover"
+                        />
+                        <div className="absolute top-1 left-1 bg-black/80 backdrop-blur-xs text-[10px] font-bold text-white px-1.5 py-0.5 rounded">
+                          {idx === 0 ? 'Main' : `#${idx + 1}`}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveImage(idx)}
+                          className="absolute top-1 right-1 p-1 bg-red-600/90 hover:bg-red-500 text-white rounded-full transition-transform hover:scale-110 shadow-md"
+                          title="Remove image"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Upload Box (Active when < 5 images) */}
+                {formImageList.length < 5 ? (
+                  <label className="border-2 border-dashed border-neutral-700 hover:border-neutral-400 bg-neutral-900/40 hover:bg-neutral-900/80 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-all text-center block">
+                    <UploadCloud className="w-6 h-6 text-neutral-400 mb-1" />
+                    <span className="text-xs font-semibold text-white">
+                      {isUploadingImage ? 'Processing images...' : 'Click or drop to upload images'}
+                    </span>
+                    <span className="text-[11px] text-neutral-400 mt-0.5">
+                      JPG, PNG, WEBP · Can select up to {5 - formImageList.length} more
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleImageFileUpload}
+                      disabled={isUploadingImage || formImageList.length >= 5}
+                      className="hidden"
+                    />
+                  </label>
+                ) : (
+                  <div className="p-2.5 bg-neutral-900/80 border border-neutral-800 rounded-xl text-center text-xs text-neutral-400">
+                    Maximum limit of 5 images reached. Remove an image to upload a different one.
+                  </div>
+                )}
+
+                {/* Or Add via Image URL */}
+                {formImageList.length < 5 && (
+                  <div className="flex gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={imageUrlInput}
+                      onChange={(e) => setImageUrlInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddImageUrl();
+                        }
+                      }}
+                      placeholder="Or paste image URL here..."
+                      className="flex-1 px-3 py-1.5 text-xs bg-neutral-900 border border-neutral-700 rounded-lg text-white placeholder-neutral-500 focus:outline-none focus:border-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddImageUrl}
+                      disabled={!imageUrlInput.trim()}
+                      className="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 disabled:opacity-40 text-xs font-semibold text-white rounded-lg transition-colors"
+                    >
+                      Add URL
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

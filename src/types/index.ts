@@ -53,6 +53,7 @@ export type OrderStatus =
   | 'Processing'
   | 'Shipped'
   | 'Delivered'
+  | 'Success'
   | 'Cancelled';
 
 export interface Order {
@@ -68,7 +69,10 @@ export interface Order {
   subtotal: number;
   deliveryFee: number;
   total: number;
-  paymentMethod: 'cod' | 'online';
+  paymentMethod: 'bkash' | 'nagad' | 'rocket' | 'cod' | 'online';
+  paymentSenderNumber?: string;
+  paymentTrxId?: string;
+  deliveryFeeAdvance?: number;
   status: OrderStatus;
   createdAt: string;
   userId?: string;

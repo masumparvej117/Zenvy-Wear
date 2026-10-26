@@ -51,26 +51,14 @@ export function ProductCard({ product }: ProductCardProps) {
       onClick={() => setSelectedProduct(product)}
       className="group cursor-pointer bg-white rounded-xl overflow-hidden border border-neutral-200 hover:border-neutral-900 transition-all duration-300 flex flex-col justify-between"
     >
-      {/* Product Image Box with Luxury Fashion Cross-fade on Hover */}
+      {/* Product Image Box */}
       <div className="relative aspect-[4/5] bg-neutral-100 overflow-hidden">
         <img
           src={product.images[0] || '/src/assets/images/category_men_tshirt_1792926459237.jpg'}
           alt={product.name}
           referrerPolicy="no-referrer"
-          className={`w-full h-full object-cover object-center transition-all duration-700 ${
-            product.images[1]
-              ? 'group-hover:opacity-0 group-hover:scale-105'
-              : 'group-hover:scale-105'
-          }`}
+          className="w-full h-full object-cover object-center transition-transform duration-500 group-hover:scale-105"
         />
-        {product.images[1] && (
-          <img
-            src={product.images[1]}
-            alt={`${product.name} alternate view`}
-            referrerPolicy="no-referrer"
-            className="absolute inset-0 w-full h-full object-cover object-center opacity-0 group-hover:opacity-100 transition-all duration-700 scale-102 group-hover:scale-100"
-          />
-        )}
 
         {/* Quiet Discount or New Tag (Single subtle text badge, no colored pill cluster) */}
         <div className="absolute top-3 left-3 flex flex-col gap-1 items-start">

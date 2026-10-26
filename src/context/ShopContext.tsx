@@ -2,11 +2,27 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import type { Product, Category, CartItem, Order, User, SiteSettings } from '../types';
 import { api, authStorage } from '../utils/api';
 import { calculateCartTotals } from '../utils/shopRules';
+import { auth, testConnection } from '../firebase/config';
+import {
+  seedFirestoreIfEmpty,
+  subscribeProducts,
+  subscribeCategories,
+  subscribeSettings,
+  signInWithGoogle as fbSignInWithGoogle,
+  signInWithEmailPassword,
+  registerWithEmailPassword,
+  logOutFromFirebase,
+  syncFirebaseUserProfile,
+  isEmailAdmin,
+} from '../firebase/firestoreService';
+import { initialProducts, initialCategories, defaultSettings } from '../utils/initialData';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface ShopContextType {
   user: User | null;
   isAdmin: boolean;
   isLoadingUser: boolean;
+  isFirebaseConnected: boolean;
   products: Product[];
   categories: Category[];
   settings: SiteSettings;
@@ -55,21 +71,10 @@ interface ShopContextType {
   // User Actions
   login: (email: string, pass: string) => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, pass: string, phone?: string) => Promise<{ success: boolean; error?: string }>;
+  signInWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   logout: () => void;
   refreshData: () => Promise<void>;
 }
-
-const defaultSettings: SiteSettings = {
-  brandName: 'ZENVY WEAR',
-  tagline: 'Wear Your Style. Modern Fashion for Everyone.',
-  bannerAnnouncement: 'Free delivery across Bangladesh on orders over Tk. 2,000 · Cash on Delivery Available',
-  whatsappNumber: '+8801757391262',
-  facebookUrl: 'https://www.facebook.com/zenvywear1',
-  businessEmail: 'zenvywear75@gmail.com',
-  freeShippingThreshold: 2000,
-  deliveryFeeDhaka: 70,
-  deliveryFeeOutside: 130,
-};
 
 const ShopContext = createContext<ShopContextType | undefined>(undefined);
 
@@ -78,8 +83,9 @@ const CART_STORAGE_KEY = 'zenvy_cart_items';
 export function ShopProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoadingUser, setIsLoadingUser] = useState(true);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [isFirebaseConnected, setIsFirebaseConnected] = useState(false);
+  const [products, setProducts] = useState<Product[]>(initialProducts);
+  const [categories, setCategories] = useState<Category[]>(initialCategories);
   const [settings, setSettings] = useState<SiteSettings>(defaultSettings);
   const [cityZone, setCityZone] = useState<'inside_dhaka' | 'outside_dhaka'>('inside_dhaka');
 
@@ -166,40 +172,102 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     }
   }, [cart]);
 
-  // Load User & Catalog
+  // Connect Firebase & subscribe to live Firestore collections
+  useEffect(() => {
+    let unsubProducts: (() => void) | undefined;
+    let unsubCategories: (() => void) | undefined;
+    let unsubSettings: (() => void) | undefined;
+
+    async function initFirebaseAndData() {
+      try {
+        await testConnection();
+        setIsFirebaseConnected(true);
+        // Seed default collections if empty in Firestore
+        await seedFirestoreIfEmpty();
+      } catch (err) {
+        console.warn('Firebase initial test/seed notice:', err);
+      }
+
+      // Attach Firestore real-time listeners
+      try {
+        unsubProducts = subscribeProducts((prods) => {
+          if (prods && prods.length > 0) {
+            setProducts(prods);
+          }
+        });
+
+        unsubCategories = subscribeCategories((cats) => {
+          if (cats && cats.length > 0) {
+            setCategories(cats);
+          }
+        });
+
+        unsubSettings = subscribeSettings((sets) => {
+          if (sets) {
+            setSettings(sets);
+          }
+        });
+      } catch (err) {
+        console.warn('Real-time listener setup fallback to API:', err);
+      }
+    }
+
+    initFirebaseAndData();
+
+    // Firebase Auth State Listener
+    const unsubAuth = onAuthStateChanged(auth, async (fbUser) => {
+      if (fbUser) {
+        try {
+          const u = await syncFirebaseUserProfile(fbUser.uid, {
+            name: fbUser.displayName || fbUser.email?.split('@')[0] || 'User',
+            email: fbUser.email || '',
+            phone: fbUser.phoneNumber || undefined,
+            role: isEmailAdmin(fbUser.email) ? 'admin' : 'customer',
+          });
+          setUser(u);
+        } catch (err) {
+          console.warn('Error syncing Firebase user profile:', err);
+        }
+      } else {
+        // Fallback check local JWT storage if user signed in via server API
+        const token = authStorage.getToken();
+        if (token) {
+          api
+            .getCurrentUser()
+            .then((u) => setUser(u))
+            .catch(() => {
+              authStorage.clearToken();
+              setUser(null);
+            });
+        } else {
+          setUser(null);
+        }
+      }
+      setIsLoadingUser(false);
+    });
+
+    return () => {
+      if (unsubProducts) unsubProducts();
+      if (unsubCategories) unsubCategories();
+      if (unsubSettings) unsubSettings();
+      unsubAuth();
+    };
+  }, []);
+
   const refreshData = async () => {
     try {
       const [prodsData, catsData, setsData] = await Promise.all([
-        api.getProducts(),
-        api.getCategories(),
+        api.getProducts().catch(() => initialProducts),
+        api.getCategories().catch(() => initialCategories),
         api.getSettings().catch(() => defaultSettings),
       ]);
-      setProducts(prodsData);
-      setCategories(catsData);
+      if (prodsData && prodsData.length > 0) setProducts(prodsData);
+      if (catsData && catsData.length > 0) setCategories(catsData);
       if (setsData) setSettings(setsData);
     } catch (err) {
       console.error('Error fetching catalog:', err);
     }
   };
-
-  useEffect(() => {
-    refreshData();
-
-    // Check user auth token
-    const token = authStorage.getToken();
-    if (token) {
-      api
-        .getCurrentUser()
-        .then((u) => setUser(u))
-        .catch(() => {
-          authStorage.clearToken();
-          setUser(null);
-        })
-        .finally(() => setIsLoadingUser(false));
-    } else {
-      setIsLoadingUser(false);
-    }
-  }, []);
 
   const showToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToast({ message, type });
@@ -293,15 +361,25 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     setCart([]);
   };
 
-  // Auth actions
+  // Auth actions (Firebase Auth + backend fallback)
   const login = async (email: string, pass: string) => {
     try {
-      const res = await api.login({ email, password: pass });
-      authStorage.setToken(res.token);
-      setUser(res.user);
-      setAuthModal('closed');
-      showToast(`Welcome back, ${res.user.name}!`, 'success');
-      return { success: true };
+      // First attempt Firebase Auth
+      try {
+        const fbUser = await signInWithEmailPassword(email, pass);
+        setUser(fbUser);
+        setAuthModal('closed');
+        showToast(`Welcome back, ${fbUser.name}!`, 'success');
+        return { success: true };
+      } catch (fbErr: any) {
+        // Fallback to Express backend credentials (e.g. for default Admin credentials)
+        const res = await api.login({ email, password: pass });
+        authStorage.setToken(res.token);
+        setUser(res.user);
+        setAuthModal('closed');
+        showToast(`Welcome back, ${res.user.name}!`, 'success');
+        return { success: true };
+      }
     } catch (err: any) {
       showToast(err.message || 'Login failed', 'error');
       return { success: false, error: err.message };
@@ -310,19 +388,42 @@ export function ShopProvider({ children }: { children: ReactNode }) {
 
   const register = async (name: string, email: string, pass: string, phone?: string) => {
     try {
-      const res = await api.register({ name, email, password: pass, phone });
-      authStorage.setToken(res.token);
-      setUser(res.user);
-      setAuthModal('closed');
-      showToast(`Account created! Welcome to ZENVY WEAR, ${res.user.name}.`, 'success');
-      return { success: true };
+      try {
+        const fbUser = await registerWithEmailPassword(name, email, pass, phone);
+        setUser(fbUser);
+        setAuthModal('closed');
+        showToast(`Account created! Welcome to ZENVY WEAR, ${name}.`, 'success');
+        return { success: true };
+      } catch (fbErr: any) {
+        const res = await api.register({ name, email, password: pass, phone });
+        authStorage.setToken(res.token);
+        setUser(res.user);
+        setAuthModal('closed');
+        showToast(`Account created! Welcome to ZENVY WEAR, ${res.user.name}.`, 'success');
+        return { success: true };
+      }
     } catch (err: any) {
       showToast(err.message || 'Registration failed', 'error');
       return { success: false, error: err.message };
     }
   };
 
+  const signInWithGoogle = async () => {
+    try {
+      const fbUser = await fbSignInWithGoogle();
+      setUser(fbUser);
+      setAuthModal('closed');
+      showToast(`Welcome to ZENVY WEAR, ${fbUser.name}!`, 'success');
+      return { success: true };
+    } catch (err: any) {
+      const msg = err.message || 'Google sign in failed';
+      showToast(msg, 'error');
+      return { success: false, error: msg };
+    }
+  };
+
   const logout = () => {
+    logOutFromFirebase().catch(() => {});
     authStorage.clearToken();
     setUser(null);
     if (currentRoute === 'admin') {
@@ -335,8 +436,9 @@ export function ShopProvider({ children }: { children: ReactNode }) {
     <ShopContext.Provider
       value={{
         user,
-        isAdmin: user?.role === 'admin',
+        isAdmin: user?.role === 'admin' || isEmailAdmin(user?.email),
         isLoadingUser,
+        isFirebaseConnected,
         products,
         categories,
         settings,
@@ -381,6 +483,7 @@ export function ShopProvider({ children }: { children: ReactNode }) {
         isWishlisted,
         login,
         register,
+        signInWithGoogle,
         logout,
         refreshData,
       }}

@@ -3,6 +3,7 @@ import { X, Package, Clock, MessageCircle, ExternalLink, RefreshCw } from 'lucid
 import { useShop } from '../context/ShopContext';
 import { api } from '../utils/api';
 import type { Order } from '../types';
+import { subscribeUserOrders } from '../firebase/firestoreService';
 
 export function CustomerOrdersModal() {
   const { isMyOrdersOpen, setIsMyOrdersOpen, user, settings } = useShop();
@@ -15,11 +16,36 @@ export function CustomerOrdersModal() {
 
     setIsLoading(true);
     setError(null);
+
+    // Initial load from API
     api
       .getMyOrders()
-      .then((data) => setOrders(data))
+      .then((data) => {
+        if (data && data.length > 0) setOrders(data);
+      })
       .catch((err) => setError(err.message || 'Failed to load order history'))
       .finally(() => setIsLoading(false));
+
+    // Live subscription from Firestore
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeUserOrders(
+        user.id,
+        (fbOrders) => {
+          if (fbOrders && fbOrders.length > 0) {
+            setOrders(fbOrders);
+            setIsLoading(false);
+          }
+        },
+        () => {}
+      );
+    } catch {
+      // ignore
+    }
+
+    return () => {
+      if (unsub) unsub();
+    };
   }, [isMyOrdersOpen, user]);
 
   if (!isMyOrdersOpen) return null;
@@ -34,6 +60,7 @@ export function CustomerOrdersModal() {
         return 'bg-purple-50 text-purple-800 border-purple-200';
       case 'Shipped':
         return 'bg-indigo-50 text-indigo-800 border-indigo-200';
+      case 'Success':
       case 'Delivered':
         return 'bg-emerald-50 text-emerald-800 border-emerald-200';
       case 'Cancelled':

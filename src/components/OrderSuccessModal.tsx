@@ -41,19 +41,34 @@ export function OrderSuccessModal() {
           </p>
         </div>
 
-        {/* Order Reference Box */}
-        <div className="my-6 p-4 bg-neutral-900 text-white rounded-xl flex items-center justify-between">
-          <div>
-            <div className="text-[11px] uppercase tracking-wider text-neutral-400">Order Reference</div>
-            <div className="text-lg sm:text-xl font-mono font-bold tracking-wider text-white">
-              {orderSuccess.orderRef}
+        {/* Order Reference & Payment Summary Box */}
+        <div className="my-6 p-4 bg-neutral-900 text-white rounded-xl space-y-3">
+          <div className="flex items-center justify-between border-b border-neutral-800 pb-2.5">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider text-neutral-400">Order Reference</div>
+              <div className="text-lg sm:text-xl font-mono font-bold tracking-wider text-white">
+                {orderSuccess.orderRef}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-[11px] uppercase tracking-wider text-neutral-400">ডেলিভারির সময় প্রদেয় (COD)</div>
+              <div className="text-lg sm:text-xl font-bold text-emerald-400 tabular-nums">
+                <span className="font-bengali">৳</span>{orderSuccess.subtotal.toLocaleString('en-US')}
+              </div>
             </div>
           </div>
-          <div className="text-right">
-            <div className="text-[11px] uppercase tracking-wider text-neutral-400">Payment Due (COD)</div>
-            <div className="text-lg sm:text-xl font-bold text-emerald-400 tabular-nums">
-              <span className="font-bengali">৳</span>{orderSuccess.total.toLocaleString('en-US')}
+
+          <div className="flex flex-wrap items-center justify-between text-xs text-neutral-300 pt-0.5">
+            <div>
+              <span className="text-neutral-400">অগ্রিম ডেলিভারি চার্জ: </span>
+              <span className="font-bold text-amber-400">৳{orderSuccess.deliveryFeeAdvance || orderSuccess.deliveryFee}</span>
+              <span className="text-[11px] text-neutral-400"> ({orderSuccess.paymentMethod?.toUpperCase()})</span>
             </div>
+            {orderSuccess.paymentSenderNumber && (
+              <div className="text-neutral-400">
+                Send Money নম্বর: <span className="font-mono text-white font-semibold">{orderSuccess.paymentSenderNumber}</span>
+              </div>
+            )}
           </div>
         </div>
 

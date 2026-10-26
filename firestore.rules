@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Entity validation functions
+    function isValidProduct(data) {
+      return data.keys().hasAll(['sku', 'name', 'category', 'price', 'stock', 'status']) &&
+        data.keys().hasOnly(['id', 'sku', 'name', 'description', 'category', 'price', 'discountPrice', 'images', 'sizes', 'colors', 'stock', 'status', 'isFeatured', 'isNewArrival', 'createdAt', 'updatedAt']) &&
+        data.sku is string && data.sku.size() <= 64 &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 200 &&
+        data.category is string && data.category.size() <= 100 &&
+        data.price is number && data.price >= 0 &&
+        data.stock is number && data.stock >= 0 &&
+        data.status in ['active', 'inactive'] &&
+        (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 2000)) &&
+        (!('discountPrice' in data) || data.discountPrice == null || (data.discountPrice is number && data.discountPrice >= 0)) &&
+        (!('images' in data) || data.images == null || (data.images is list && data.images.size() <= 15)) &&
+        (!('sizes' in data) || data.sizes == null || (data.sizes is list && data.sizes.size() <= 15)) &&
+        (!('colors' in data) || data.colors == null || (data.colors is list && data.colors.size() <= 15)) &&
+        (!('isFeatured' in data) || data.isFeatured is bool) &&
+        (!('isNewArrival' in data) || data.isNewArrival is bool);
+    }
+
+    function isValidCategory(data) {
+      return data.keys().hasAll(['name', 'slug']) &&
+        data.keys().hasOnly(['id', 'name', 'slug', 'description', 'image']) &&
+        data.name is string && data.name.size() > 0 && data.name.size() <= 100 &&
+        data.slug is string && data.slug.size() > 0 && data.slug.size() <= 100 &&
+        (!('description' in data) || data.description == null || (data.description is string && data.description.size() <= 500)) &&
+        (!('image' in data) || data.image == null || (data.image is string && data.image.size() <= 500));
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['orderRef', 'customerName', 'customerPhone', 'deliveryAddress', 'cityZone', 'total', 'status', 'paymentMethod']) &&
+        data.keys().hasOnly(['id', 'orderRef', 'customerName', 'customerEmail', 'customerPhone', 'deliveryAddress', 'cityZone', 'orderNotes', 'items', 'subtotal', 'deliveryFee', 'total', 'paymentMethod', 'paymentSenderNumber', 'paymentTrxId', 'deliveryFeeAdvance', 'status', 'createdAt', 'userId']) &&
+        data.orderRef is string && data.orderRef.size() > 0 && data.orderRef.size() <= 32 &&
+        data.customerName is string && data.customerName.size() > 0 && data.customerName.size() <= 120 &&
+        data.customerPhone is string && data.customerPhone.size() > 0 && data.customerPhone.size() <= 25 &&
+        data.deliveryAddress is string && data.deliveryAddress.size() > 0 && data.deliveryAddress.size() <= 500 &&
+        data.cityZone in ['inside_dhaka', 'outside_dhaka'] &&
+        data.total is number && data.total >= 0 &&
+        data.paymentMethod in ['bkash', 'nagad', 'rocket', 'cod', 'online'] &&
+        data.status in ['Pending', 'Confirmed', 'Processing', 'Shipped', 'Delivered', 'Success', 'Cancelled'] &&
+        (!('customerEmail' in data) || data.customerEmail == null || (data.customerEmail is string && data.customerEmail.size() <= 200)) &&
+        (!('orderNotes' in data) || data.orderNotes == null || (data.orderNotes is string && data.orderNotes.size() <= 500)) &&
+        (!('paymentSenderNumber' in data) || data.paymentSenderNumber == null || (data.paymentSenderNumber is string && data.paymentSenderNumber.size() <= 30)) &&
+        (!('paymentTrxId' in data) || data.paymentTrxId == null || (data.paymentTrxId is string && data.paymentTrxId.size() <= 60)) &&
+        (!('deliveryFeeAdvance' in data) || data.deliveryFeeAdvance == null || (data.deliveryFeeAdvance is number && data.deliveryFeeAdvance >= 0)) &&
+        (!('items' in data) || data.items == null || (data.items is list && data.items.size() <= 50)) &&
+        (!('subtotal' in data) || data.subtotal == null || (data.subtotal is number && data.subtotal >= 0)) &&
+        (!('deliveryFee' in data) || data.deliveryFee == null || (data.deliveryFee is number && data.deliveryFee >= 0)) &&
+        (!('userId' in data) || data.userId == null || (data.userId is string && data.userId.size() <= 128));
+    }
+
+    function isValidSettings(data) {
+      return data.keys().hasAll(['brandName', 'whatsappNumber', 'deliveryFeeDhaka', 'deliveryFeeOutside']) &&
+        data.keys().hasOnly(['brandName', 'tagline', 'bannerAnnouncement', 'whatsappNumber', 'facebookUrl', 'businessEmail', 'freeShippingThreshold', 'deliveryFeeDhaka', 'deliveryFeeOutside']) &&
+        data.brandName is string && data.brandName.size() <= 100 &&
+        data.whatsappNumber is string && data.whatsappNumber.size() <= 25 &&
+        data.deliveryFeeDhaka is number && data.deliveryFeeDhaka >= 0 &&
+        data.deliveryFeeOutside is number && data.deliveryFeeOutside >= 0 &&
+        (!('tagline' in data) || data.tagline == null || (data.tagline is string && data.tagline.size() <= 200)) &&
+        (!('bannerAnnouncement' in data) || data.bannerAnnouncement == null || (data.bannerAnnouncement is string && data.bannerAnnouncement.size() <= 300)) &&
+        (!('facebookUrl' in data) || data.facebookUrl == null || (data.facebookUrl is string && data.facebookUrl.size() <= 255)) &&
+        (!('businessEmail' in data) || data.businessEmail == null || (data.businessEmail is string && data.businessEmail.size() <= 200)) &&
+        (!('freeShippingThreshold' in data) || data.freeShippingThreshold == null || (data.freeShippingThreshold is number && data.freeShippingThreshold >= 0));
+    }
+
+    // 1. Products collection
+    match /products/{productId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(productId) && isValidProduct(incoming());
+      allow delete: if isValidId(productId);
+    }
+
+    // 2. Categories collection
+    match /categories/{categoryId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(categoryId) && isValidCategory(incoming());
+      allow delete: if isValidId(categoryId);
+    }
+
+    // 3. Orders collection
+    match /orders/{orderId} {
+      allow get, list: if true;
+
+      // Create: customer or guest placing order with initial Pending status
+      allow create: if isValidId(orderId) &&
+        isValidOrder(incoming()) &&
+        incoming().status == 'Pending';
+
+      // Update: status updates or full valid order updates
+      allow update: if isValidId(orderId) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['status']) ||
+        isValidOrder(incoming())
+      );
+
+      // Delete: admin/system
+      allow delete: if isValidId(orderId);
+    }
+
+    // 4. Users collection
+    match /users/{userId} {
+      allow get, list: if true;
+      allow create, update: if isValidId(userId);
+      allow delete: if isValidId(userId);
+    }
+
+    // 5. Settings collection
+    match /settings/{settingId} {
+      allow get, list: if true;
+      allow create, update, delete: if isValidId(settingId);
+    }
+
+    // 6. Admins collection
+    match /admins/{adminId} {
+      allow get, list, create, update, delete: if true;
+    }
+  }
+}
