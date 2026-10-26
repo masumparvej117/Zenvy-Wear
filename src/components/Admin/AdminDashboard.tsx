@@ -364,9 +364,10 @@ export function AdminDashboard() {
   // Handle Update Order Status
   const handleOrderStatusChange = async (orderId: string, newStatus: string) => {
     try {
+      const targetOrder = adminOrders.find((o) => o.id === orderId);
       await api.admin.updateOrderStatus(orderId, newStatus);
       try {
-        await updateOrderStatusInFirestore(orderId, newStatus);
+        await updateOrderStatusInFirestore(orderId, newStatus, targetOrder);
       } catch (fbErr) {
         console.warn('Firestore status:', fbErr);
       }

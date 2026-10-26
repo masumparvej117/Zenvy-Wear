@@ -320,9 +320,15 @@ export function subscribeAllOrders(
   );
 }
 
-export async function updateOrderStatusInFirestore(orderId: string, status: string): Promise<void> {
+export async function updateOrderStatusInFirestore(orderId: string, status: string, orderData?: Partial<Order>): Promise<void> {
   try {
-    await updateDoc(doc(db, ORDERS_COLLECTION, orderId), { status });
+    const payload: Record<string, any> = {
+      id: orderId,
+      status,
+      updatedAt: new Date().toISOString(),
+      ...(orderData || {}),
+    };
+    await setDoc(doc(db, ORDERS_COLLECTION, orderId), payload, { merge: true });
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `${ORDERS_COLLECTION}/${orderId}`);
   }

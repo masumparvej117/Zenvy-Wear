@@ -96,19 +96,7 @@ service cloud.firestore {
     // 3. Orders collection
     match /orders/{orderId} {
       allow get, list: if true;
-
-      // Create: customer or guest placing order with initial Pending status
-      allow create: if isValidId(orderId) &&
-        isValidOrder(incoming()) &&
-        incoming().status == 'Pending';
-
-      // Update: status updates or full valid order updates
-      allow update: if isValidId(orderId) && (
-        incoming().diff(existing()).affectedKeys().hasOnly(['status']) ||
-        isValidOrder(incoming())
-      );
-
-      // Delete: admin/system
+      allow create, update: if isValidId(orderId);
       allow delete: if isValidId(orderId);
     }
 
